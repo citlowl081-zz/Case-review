@@ -26,3 +26,21 @@ skills:
 - 分析失败原因
 - 是代码 bug 还是测试用例写错了？
 - 修复后重新运行
+
+### 4. 写入通行令牌（必须！）
+
+测试全部执行完毕后，**必须**用 Bash 工具写入令牌文件。这是 git 提交拦截器判断是否放行的依据。
+
+```bash
+cat > .claude/results/test-passed.json << 'EOF'
+{
+  "passed": <true 或 false>,
+  "total": <测试总数>,
+  "failed": <失败数>,
+  "coverage": "<覆盖率百分比>",
+  "timestamp": "<当前ISO时间，如 2026-07-06T15:30:00>"
+}
+EOF
+```
+
+用 python3 获取当前时间：`python3 -c "from datetime import datetime; print(datetime.now().isoformat())"`

@@ -45,6 +45,10 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
+# Quality gate tokens (临时检查结果，不提交)
+.claude/results/*.json
+!.claude/results/.gitkeep
+
 # Logs
 *.log
 logs/
