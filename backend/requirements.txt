@@ -1,0 +1,50 @@
+# Web Framework
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Database
+sqlalchemy[asyncio]>=2.0.25
+asyncpg>=0.29.0
+alembic>=1.13.0
+
+# Redis
+redis>=5.0.1
+hiredis>=2.2.3
+
+# Auth
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==3.2.2
+
+# LangChain & AI
+langchain>=0.1.0
+langchain-community>=0.0.10
+langgraph>=0.0.20
+dashscope>=1.17.0
+chromadb>=0.5.0
+langchain-chroma>=0.1.0
+
+# Document Processing
+pypdf>=3.17.4
+docx2txt>=0.8
+unstructured>=0.11.6
+tiktoken>=0.5.2
+
+# BM25
+rank-bm25>=0.2.2
+
+# Task Queue
+celery[redis]>=5.3.4
+
+# Utils
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+loguru>=0.7.2
+httpx>=0.25.2
+python-dotenv>=1.0.0
+tenacity>=8.2.0
+nest-asyncio>=1.5.0
+
+# Report Generation
+reportlab>=4.0.0

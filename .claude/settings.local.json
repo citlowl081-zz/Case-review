@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /Users/citlowl/Desktop/langchainRAG/setup.sh)",
+      "Bash(brew install *)"
+    ]
+  }
+}

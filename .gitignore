@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# Environment
+.env
+*.env.local
+
+# ChromaDB
+backend/chroma_data/
+
+# Uploaded files
+backend/storage/docs/*
+!backend/storage/docs/.gitkeep
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+
+# pytest
+.pytest_cache/
+backend/.pytest_cache/
+frontend/.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
