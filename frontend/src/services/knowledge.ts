@@ -32,3 +32,23 @@ export async function getKnowledgeStats(): Promise<KnowledgeStats> {
   const res = await api.get('/knowledge/stats');
   return res.data;
 }
+
+export async function reviewDocuments(params: {
+  document_ids: string[];
+  review_types: string[];
+}): Promise<{
+  document_id: string;
+  document_name: string;
+  findings: Array<{
+    review_type: string;
+    severity: string;
+    description: string;
+    source_reference: string;
+    suggestion: string;
+  }>;
+  summary: string;
+  reviewed_at: string;
+}> {
+  const res = await api.post('/knowledge/review', params);
+  return res.data;
+}

@@ -1,13 +1,20 @@
 """LangChain LCEL chain — the core RAG pipeline with streaming support."""
 import json
+import os
 from typing import AsyncIterator, List, Dict, Any
+import httpx
 from langchain_openai import ChatOpenAI
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import settings
-from app.rag.prompts import QA_SYSTEM_PROMPT, REVIEW_PROMPTS, REVIEW_TYPE_LABELS
+from app.rag.prompts import QA_SYSTEM_PROMPT, REVIEW_PROMPTS, REVIEW_TYPE_LABELS, STRUCTURED_REVIEW_PROMPT
 from app.rag.retriever import get_hybrid_retriever
 from app.rag.reranker import get_reranker
+
+
+# Shared httpx client that bypasses system proxy (needed for Alibaba Cloud direct access)
+_httpx_client = httpx.Client(timeout=120, proxy=None, trust_env=False)
+_async_httpx_client = httpx.AsyncClient(timeout=120, proxy=None, trust_env=False)
 
 
 def get_llm(streaming: bool = True) -> ChatOpenAI:
@@ -19,6 +26,8 @@ def get_llm(streaming: bool = True) -> ChatOpenAI:
         temperature=settings.LLM_TEMPERATURE,
         max_tokens=settings.LLM_MAX_TOKENS,
         streaming=streaming,
+        http_client=_httpx_client,
+        http_async_client=_async_httpx_client,
     )
 
 
@@ -152,3 +161,87 @@ async def run_clinical_review(
         "content": response.content,
         "raw_findings": response.content,
     }
+
+
+async def run_structured_review(
+    content: str,
+    review_types: List[str],
+    context_docs: List[Document] = None,
+) -> Dict[str, Any]:
+    """Run a structured clinical review with JSON output.
+
+    Args:
+        content: The content to review (concatenated document chunks)
+        review_types: List of review types to run
+        context_docs: Relevant reference documents from the knowledge base
+
+    Returns:
+        Dict with 'findings' list and 'summary' string
+    """
+    import json as _json
+
+    # Build review type labels for the prompt
+    type_labels = [REVIEW_TYPE_LABELS.get(t, t) for t in review_types]
+    review_types_text = "、".join(type_labels)
+
+    # Retrieve relevant context if not provided
+    if context_docs is None:
+        retriever = get_hybrid_retriever()
+        # Retrieve context for each review type
+        all_retrieved = []
+        for rt in review_types:
+            query = f"{REVIEW_TYPE_LABELS.get(rt, rt)} 审核标准"
+            retrieved = retriever.retrieve(query, top_k=5)
+            all_retrieved.extend(retrieved)
+        # Deduplicate
+        seen = set()
+        unique = []
+        for doc, score in all_retrieved:
+            key = doc.page_content[:200]
+            if key not in seen:
+                seen.add(key)
+                unique.append((doc, score))
+        context = _build_context(unique[:10]) if unique else "暂无参考文档"
+    else:
+        dummy = [(d, 1.0) for d in context_docs]
+        context = _build_context(dummy[:10])
+
+    prompt = STRUCTURED_REVIEW_PROMPT.format(
+        review_types=review_types_text,
+        context=context,
+        content=content[:8000],  # Truncate to avoid token limits
+    )
+
+    llm = get_llm(streaming=False)
+    response = llm.invoke([HumanMessage(content=prompt)])
+
+    # Parse JSON from response
+    raw_text = response.content.strip()
+    # Remove markdown code fences if present
+    if raw_text.startswith("```"):
+        lines = raw_text.split("\n")
+        # Remove first line (```json or ```) and last line (```)
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw_text = "\n".join(lines)
+
+    try:
+        result = _json.loads(raw_text)
+    except _json.JSONDecodeError:
+        # Fallback: return raw text as a single finding
+        result = {
+            "findings": [
+                {
+                    "review_type": review_types[0] if review_types else "unknown",
+                    "severity": "中",
+                    "description": raw_text[:1000],
+                    "source_reference": "审核输出",
+                    "suggestion": "请查看完整审核文本",
+                }
+            ],
+            "summary": f"已完成{review_types_text}审核",
+        }
+
+    return result

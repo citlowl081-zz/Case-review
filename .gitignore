@@ -13,6 +13,10 @@ venv/
 
 # ChromaDB
 backend/chroma_data/
+chroma_data/
+
+# Clinical QC Data (uploaded files, DB, reports)
+data/
 
 # Uploaded files
 backend/storage/docs/*

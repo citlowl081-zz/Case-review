@@ -145,3 +145,44 @@ REVIEW_TYPE_LABELS = {
     "ae_logic": "AE时间逻辑审核",
     "consistency": "文档一致性审核",
 }
+
+
+# ── Structured Review Prompt (JSON output) ──
+
+STRUCTURED_REVIEW_PROMPT = """你是一个临床试验文档智能审核专家。请根据参考文档中的方案、SOP、手册等内容，对用户提供的待审核内容进行审核。
+
+## 审核类型
+{review_types}
+
+## 审核要求
+针对每种审核类型，找出至少1-2个潜在问题（如果存在的话）。每个问题需要包含：
+- 风险等级（高/中/低）
+- 问题描述
+- 依据来源（引用哪个文档）
+- 修改建议
+
+## 重要输出格式要求
+**你必须严格输出JSON格式，不要输出任何其他内容。** JSON结构如下：
+
+```json
+{{
+  "findings": [
+    {{
+      "review_type": "visit_window",
+      "severity": "高",
+      "description": "具体问题描述",
+      "source_reference": "依据文档名称和章节",
+      "suggestion": "具体修改建议"
+    }}
+  ],
+  "summary": "审核总结（1-2句话）"
+}}
+```
+
+## 参考文档
+{context}
+
+## 待审核内容
+{content}
+
+请输出JSON："""

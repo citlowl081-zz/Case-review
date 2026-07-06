@@ -1,0 +1,19 @@
+[server]
+# Security: bind to localhost only — prevents external network access
+# Change to "0.0.0.0" only if you need LAN access (temporary, with firewall)
+address = "0.0.0.0"
+port = 8501
+
+# Security: enable CSRF protection
+enableXsrfProtection = true
+enableCORS = false
+
+# Limit file upload to 50MB (matches backend MAX_UPLOAD_SIZE_MB)
+maxUploadSize = 50
+
+# Run in headless mode (no email prompt)
+headless = true
+
+[browser]
+# Privacy: disable usage stats collection
+gatherUsageStats = false

@@ -17,6 +17,9 @@ from app.schemas.knowledge import (
     DocumentListResponse,
     KnowledgeStatsResponse,
     UploadResponse,
+    ReviewRequest,
+    ReviewResponse,
+    ReviewFinding,
 )
 from app.rag.vector_store import get_store_stats
 
@@ -87,15 +90,16 @@ async def upload_document(
         # Celery 不可用 — 降级为同步处理，避免文档永远卡在 "uploading" 状态
         logger.warning(f"Celery 不可用，降级为同步处理文档 {doc_id}: {e}")
         try:
-            from app.services.kb_service import process_document_sync
-            import asyncio
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(_run_sync_process(doc_id, file_path, ext.lstrip(".")))
-            else:
-                loop.run_until_complete(_run_sync_process(doc_id, file_path, ext.lstrip(".")))
+            asyncio.ensure_future(_run_sync_process(doc_id, file_path, ext.lstrip(".")))
         except Exception as sync_e:
             logger.error(f"同步处理文档 {doc_id} 也失败: {sync_e}")
+
+    return UploadResponse(
+        id=document.id,
+        filename=document.filename,
+        status=document.status,
+        message="文档已上传，正在后台处理",
+    )
 
 
 async def _run_sync_process(doc_id: str, file_path: str, file_type: str):
@@ -109,13 +113,6 @@ async def _run_sync_process(doc_id: str, file_path: str, file_type: str):
         except Exception as e:
             await db.rollback()
             logger.error(f"同步处理文档 {doc_id} 失败: {e}")
-
-    return UploadResponse(
-        id=document.id,
-        filename=document.filename,
-        status=document.status,
-        message="文档已上传，正在后台处理",
-    )
 
 
 @router.get("/documents", response_model=DocumentListResponse)
@@ -236,4 +233,85 @@ async def get_knowledge_stats(
         total_size_bytes=total_size or 0,
         by_category=by_category,
         by_status=by_status,
+    )
+
+
+@router.post("/review", response_model=ReviewResponse)
+async def review_documents(
+    req: ReviewRequest,
+    admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """对指定文档进行临床审核（仅管理员）."""
+    from datetime import datetime, timezone
+    from app.rag.chain import run_structured_review
+
+    # Fetch document content from DB
+    documents_content = []
+    doc_names = []
+    for doc_id in req.document_ids:
+        result = await db.execute(
+            select(Document).where(Document.id == doc_id)
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"文档 {doc_id} 不存在",
+            )
+        doc_names.append(doc.filename)
+
+        # Get all chunks for this document
+        chunks_result = await db.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == doc_id)
+            .order_by(DocumentChunk.chunk_index)
+        )
+        chunks = chunks_result.scalars().all()
+        if chunks:
+            doc_content = "\n\n".join([c.content for c in chunks])
+        else:
+            # Fallback: try to load from file
+            try:
+                from app.rag.loader import load_document
+                loaded_docs = load_document(doc.file_path, doc.file_type)
+                doc_content = "\n\n".join([d.page_content for d in loaded_docs])
+            except Exception:
+                doc_content = f"[无法加载文档内容: {doc.filename}]"
+
+        documents_content.append(f"--- 文档: {doc.filename} ---\n{doc_content}")
+
+    if not documents_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="没有可审核的文档内容",
+        )
+
+    combined_content = "\n\n".join(documents_content)
+
+    # Run structured review
+    result = await run_structured_review(
+        content=combined_content,
+        review_types=req.review_types,
+    )
+
+    # Build response
+    findings = []
+    for f in result.get("findings", []):
+        findings.append(
+            ReviewFinding(
+                review_type=f.get("review_type", ""),
+                severity=f.get("severity", "中"),
+                description=f.get("description", ""),
+                source_reference=f.get("source_reference", ""),
+                suggestion=f.get("suggestion", ""),
+            )
+        )
+
+    return ReviewResponse(
+        document_id=req.document_ids[0],
+        document_name=", ".join(doc_names),
+        findings=findings,
+        summary=result.get("summary", "审核完成"),
+        reviewed_at=datetime.now(timezone.utc).isoformat(),
     )

@@ -23,7 +23,8 @@ export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
-  const { mode, isDark } = useThemeStore();
+  const mode = useThemeStore((s) => s.mode);
+  const isDark = mode === 'dark';
 
   const isAdmin = user?.role === 'admin';
 

@@ -21,7 +21,8 @@ class DashScopeEmbeddings(Embeddings):
         self.model = model or settings.EMBEDDING_MODEL
         self.api_key = api_key or settings.DASHSCOPE_API_KEY
         self.base_url = (base_url or settings.DASHSCOPE_BASE_URL).rstrip("/")
-        self._client = httpx.Client(timeout=60)
+        # Disable proxy to avoid interference from system proxy settings
+        self._client = httpx.Client(timeout=60, proxy=None, trust_env=False)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed a list of documents."""

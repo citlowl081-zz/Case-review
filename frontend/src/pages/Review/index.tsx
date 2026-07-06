@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Card,
   Select,
@@ -11,17 +11,19 @@ import {
   Space,
   Spin,
   Descriptions,
+  Row,
+  Col,
 } from 'antd';
 import {
   AuditOutlined,
   PlayCircleOutlined,
   WarningOutlined,
-  CheckCircleOutlined,
-  InfoCircleOutlined,
   FileSearchOutlined,
   ClockCircleOutlined,
   FileSyncOutlined,
 } from '@ant-design/icons';
+import { getDocuments, reviewDocuments } from '../../services/knowledge';
+import type { DocumentInfo } from '../../types';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -32,37 +34,13 @@ const REVIEW_TYPES = [
   { value: 'consistency', label: '文档一致性审核', icon: <FileSyncOutlined /> },
 ];
 
-// Mock findings for demonstration
-const MOCK_FINDINGS = [
-  {
-    review_type: 'visit_window',
-    severity: '高' as const,
-    description: 'V2 访视日期为 2026-06-15，方案要求 V2 应在 V1 后 14±2 天内完成。当前 V2 距 V1 为 19 天，超出访视窗口。',
-    source_reference: '《研究方案》第5.2节 访视流程表',
-    suggestion: '建议记录方案偏离，并补充说明原因。如为合理偏离，需研究者签字确认。',
-  },
-  {
-    review_type: 'inclusion_exclusion',
-    severity: '中' as const,
-    description: '病例中记录受试者近30天内使用过全身糖皮质激素，方案排除标准规定筛选前14天内不得使用该类药物。',
-    source_reference: '《研究方案》第4.1节 排除标准',
-    suggestion: '请研究者确认用药时间、剂量和适应症，判断是否符合排除标准。如确认排除，应在筛选失败记录中注明。',
-  },
-  {
-    review_type: 'ae_logic',
-    severity: '中' as const,
-    description: '病历中记录\"2026-06-01 出现咳嗽\"，但 AE 表中开始时间填写为 2026-06-03。存在 2 天时间差异。',
-    source_reference: '《病例记录》第2页 / 《AE表》第3行',
-    suggestion: '请核实 AE 实际发生时间，并统一病历与 AE 表记录。如病历记录有误，应在病历中更正并注明。',
-  },
-  {
-    review_type: 'consistency',
-    severity: '高' as const,
-    description: '研究方案中规定试验药物保存温度为 2-8℃，但药物管理手册中写为 15-25℃。两处描述不一致。',
-    source_reference: '《研究方案》第7.3节 / 《药物管理手册》第2章',
-    suggestion: '请确认最终执行标准，并对药物管理手册进行修订。此差异可能影响中心执行和稽查判断。',
-  },
-];
+interface Finding {
+  review_type: string;
+  severity: string;
+  description: string;
+  source_reference: string;
+  suggestion: string;
+}
 
 const severityColor = (s: string) => {
   switch (s) {
@@ -78,25 +56,58 @@ const reviewTypeLabel = (t: string) => {
 };
 
 export default function Review() {
+  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>(
     REVIEW_TYPES.map((r) => r.value)
   );
   const [reviewing, setReviewing] = useState(false);
-  const [findings, setFindings] = useState<typeof MOCK_FINDINGS>([]);
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [summary, setSummary] = useState('');
   const [hasReviewed, setHasReviewed] = useState(false);
+
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  const loadDocuments = async () => {
+    setDocsLoading(true);
+    try {
+      const res = await getDocuments({ page: 1, page_size: 100, status: 'completed' });
+      setDocuments(res.documents);
+    } catch {
+      message.error('获取文档列表失败');
+    } finally {
+      setDocsLoading(false);
+    }
+  };
 
   const handleReview = async () => {
     if (selectedTypes.length === 0) {
       message.warning('请选择至少一种审核类型');
       return;
     }
+    if (selectedDocIds.length === 0) {
+      message.warning('请选择至少一份待审核文档');
+      return;
+    }
     setReviewing(true);
-    // Simulate review process — in production, this would call the backend API
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    setFindings(MOCK_FINDINGS.filter((f) => selectedTypes.includes(f.review_type)));
-    setHasReviewed(true);
-    setReviewing(false);
-    message.success('审核完成');
+    setHasReviewed(false);
+    try {
+      const result = await reviewDocuments({
+        document_ids: selectedDocIds,
+        review_types: selectedTypes,
+      });
+      setFindings(result.findings || []);
+      setSummary(result.summary || '');
+      setHasReviewed(true);
+      message.success(`审核完成，发现 ${result.findings?.length || 0} 个问题`);
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || '审核失败，请重试');
+    } finally {
+      setReviewing(false);
+    }
   };
 
   const columns = [
@@ -124,12 +135,22 @@ export default function Review() {
       dataIndex: 'source_reference',
       key: 'source',
       width: 200,
+      render: (text: string) => (
+        <Text ellipsis style={{ maxWidth: 180 }} title={text}>
+          {text}
+        </Text>
+      ),
     },
     {
       title: '修改建议',
       dataIndex: 'suggestion',
       key: 'suggestion',
       width: 300,
+      render: (text: string) => (
+        <Text ellipsis style={{ maxWidth: 280 }} title={text}>
+          {text}
+        </Text>
+      ),
     },
   ];
 
@@ -139,12 +160,29 @@ export default function Review() {
         <AuditOutlined /> 临床试验文档智能审核
       </Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-        选择审核类型后点击"开始审核"，系统将自动检索知识库中的方案、SOP、手册等文档，
-        对上传的病例文件进行访视窗口、纳排标准、AE逻辑、文件一致性等方面的智能检查。
+        从知识库中选择已完成处理的文档，选择审核类型后点击"开始审核"，
+        系统将自动对目标文档进行访视窗口、纳排标准、AE逻辑、文件一致性等方面的智能检查。
       </Text>
 
-      {/* Review type selection */}
+      {/* Document + Review Type Selection */}
       <Card style={{ marginBottom: 16 }}>
+        <Title level={5}>待审核文档</Title>
+        <Select
+          mode="multiple"
+          value={selectedDocIds}
+          onChange={setSelectedDocIds}
+          style={{ width: '100%', marginBottom: 16 }}
+          placeholder="选择已完成处理的文档（可多选）"
+          loading={docsLoading}
+          options={documents.map((d) => ({
+            value: d.id,
+            label: `${d.filename} (${d.file_type.toUpperCase()}, ${d.chunk_count || 0} 块)`,
+          }))}
+          notFoundContent={
+            docsLoading ? <Spin size="small" /> : <Empty description="暂无已完成处理的文档，请先上传文档" />
+          }
+        />
+
         <Title level={5}>审核类型</Title>
         <Select
           mode="multiple"
@@ -172,30 +210,32 @@ export default function Review() {
         </Button>
       </Card>
 
-      {/* Review results */}
+      {/* Loading */}
       {reviewing && (
         <Card>
           <div style={{ textAlign: 'center', padding: 48 }}>
             <Spin size="large" />
             <Paragraph style={{ marginTop: 16 }}>
-              正在检索知识库文档并对病例进行智能审核...
+              正在检索知识库文档并对选中文档进行智能审核...
             </Paragraph>
+            <Text type="secondary">审核大型文档可能需要 30-60 秒，请耐心等待</Text>
           </div>
         </Card>
       )}
 
+      {/* Results */}
       {hasReviewed && !reviewing && (
         <>
           {/* Summary */}
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col span={6}>
               <Card size="small">
-                <Stat title="发现问题" value={findings.length} color="#1677ff" />
+                <StatBlock title="发现问题" value={findings.length} color="#1677ff" />
               </Card>
             </Col>
             <Col span={6}>
               <Card size="small">
-                <Stat
+                <StatBlock
                   title="高风险"
                   value={findings.filter((f) => f.severity === '高').length}
                   color="#ff4d4f"
@@ -204,7 +244,7 @@ export default function Review() {
             </Col>
             <Col span={6}>
               <Card size="small">
-                <Stat
+                <StatBlock
                   title="中风险"
                   value={findings.filter((f) => f.severity === '中').length}
                   color="#faad14"
@@ -213,7 +253,7 @@ export default function Review() {
             </Col>
             <Col span={6}>
               <Card size="small">
-                <Stat
+                <StatBlock
                   title="低风险"
                   value={findings.filter((f) => f.severity === '低').length}
                   color="#1677ff"
@@ -222,44 +262,75 @@ export default function Review() {
             </Col>
           </Row>
 
+          {/* Summary text */}
+          {summary && (
+            <Card size="small" style={{ marginBottom: 16 }}>
+              <Text strong>审核总结：</Text>
+              <Text>{summary}</Text>
+            </Card>
+          )}
+
           {/* Findings table */}
           <Card
             title="审核结果详情"
             extra={
-              <Button type="primary" ghost>
-                导出审核报告
-              </Button>
+              findings.length > 0 && (
+                <Button
+                  type="primary"
+                  ghost
+                  onClick={() => {
+                    const text = findings
+                      .map(
+                        (f, i) =>
+                          `[${i + 1}] ${reviewTypeLabel(f.review_type)} | 风险: ${f.severity}\n` +
+                          `问题: ${f.description}\n` +
+                          `依据: ${f.source_reference}\n` +
+                          `建议: ${f.suggestion}\n`
+                      )
+                      .join('\n');
+                    navigator.clipboard.writeText(text);
+                    message.success('审核结果已复制到剪贴板');
+                  }}
+                >
+                  复制审核报告
+                </Button>
+              )
             }
           >
-            <Table
-              columns={columns}
-              dataSource={findings.map((f, i) => ({ ...f, key: i }))}
-              pagination={false}
-              expandable={{
-                expandedRowRender: (record) => (
-                  <div style={{ padding: '8px 0' }}>
-                    <Descriptions column={2} size="small">
-                      <Descriptions.Item label="问题描述" span={2}>
-                        {record.description}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="依据来源">
-                        {record.source_reference}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="修改建议">
-                        {record.suggestion}
-                      </Descriptions.Item>
-                    </Descriptions>
-                  </div>
-                ),
-              }}
-            />
+            {findings.length === 0 ? (
+              <Empty description="未发现问题，文档审核通过" />
+            ) : (
+              <Table
+                columns={columns}
+                dataSource={findings.map((f, i) => ({ ...f, key: i }))}
+                pagination={false}
+                expandable={{
+                  expandedRowRender: (record) => (
+                    <div style={{ padding: '8px 0' }}>
+                      <Descriptions column={2} size="small">
+                        <Descriptions.Item label="问题描述" span={2}>
+                          {record.description}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="依据来源">
+                          {record.source_reference}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="修改建议">
+                          {record.suggestion}
+                        </Descriptions.Item>
+                      </Descriptions>
+                    </div>
+                  ),
+                }}
+              />
+            )}
           </Card>
         </>
       )}
 
+      {/* Empty state */}
       {!reviewing && !hasReviewed && (
         <Empty
-          description="选择审核类型并点击开始审核"
+          description="选择待审核文档和审核类型，点击「开始审核」"
           style={{ marginTop: 48 }}
         />
       )}
@@ -267,7 +338,7 @@ export default function Review() {
   );
 }
 
-function Stat({ title, value, color }: { title: string; value: number; color: string }) {
+function StatBlock({ title, value, color }: { title: string; value: number; color: string }) {
   return (
     <div style={{ textAlign: 'center' }}>
       <div style={{ fontSize: 28, fontWeight: 700, color }}>{value}</div>

@@ -68,9 +68,13 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = ""
 
+    # --- App Access ---
+    APP_PASSWORD: str = "qc2026"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "allow"  # Allow extra env vars (e.g., APP_PASSWORD)
 
 
 settings = Settings()

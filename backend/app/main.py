@@ -1,7 +1,10 @@
 """FastAPI application entry point."""
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.api import auth, chat, knowledge, session, user
@@ -66,3 +69,28 @@ async def health_check():
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
     }
+
+
+# ── Static files (production mode: serve built frontend) ──
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+FRONTEND_DIST = os.path.abspath(FRONTEND_DIST)
+
+if os.path.isdir(FRONTEND_DIST):
+    # Mount static assets (JS, CSS, images) at /assets/
+    assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        """Serve frontend SPA — return index.html for all non-API routes."""
+        # Skip API routes
+        if full_path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not found")
+
+        index_path = os.path.join(FRONTEND_DIST, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path)
+
+        return {"message": "Frontend not built. Run: cd frontend && npm run build"}
